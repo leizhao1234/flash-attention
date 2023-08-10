@@ -145,6 +145,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     int n_block_max = cute::ceil_div(binfo.actual_seqlen_k, kBlockN);
     bool is_prefix = params.is_prefix;
     int prefix_len = 0;
+    bool need_expand = false;
     if (Is_causal) {
         n_block_max = std::min(n_block_max, cute::ceil_div((m_block + 1) * kBlockM, kBlockN));
         // if (threadIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0) {
@@ -154,6 +155,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         n_block_max = std::min(n_block_max, cute::ceil_div((m_block + 1) * kBlockM, kBlockN));
         prefix_len = params.prefix_lens_ptr[bidb];
         if (prefix_len > n_block_max * kBlockN){
+            need_expand = true;
             n_block_max = cute::ceil_div(prefix_len, kBlockN);
         }
     }
@@ -336,10 +338,10 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     if (Is_causal){
         n_masking_steps = cute::ceil_div(kBlockM, kBlockN);
     }else if (is_prefix){
-        if (prefix_len > n_block_max * kBlockN){
-            n_masking_steps = cute::ceil_div(kBlockM, kBlockN);
-        }else{
+        if (need_expand){
             n_masking_steps = 1;
+        }else{
+            n_masking_steps = cute::ceil_div(kBlockM, kBlockN);
         }
     }
 

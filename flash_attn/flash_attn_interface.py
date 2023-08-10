@@ -423,8 +423,8 @@ def flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False,
     return FlashAttnFunc.apply(q, k, v, dropout_p, softmax_scale, causal, return_attn_probs)
 
 
-def flash_attn_func_prefix(q, k, v, prefix=False, prefix_lens=None, dropout_p=0.0, softmax_scale=None, 
-                    return_attn_probs=False):
+def flash_attn_func_prefix(q, k, v, dropout_p=0.0, softmax_scale=None, 
+                    return_attn_probs=False, prefix=True, prefix_lens=None):
     """dropout_p should be set to 0.0 during evaluation
     Supports multi-query and grouped-query attention (MQA/GQA) by passing in KV with fewer heads
     than Q. Note that the number of heads in Q must be divisible by the number of heads in KV.
@@ -451,7 +451,7 @@ def flash_attn_func_prefix(q, k, v, prefix=False, prefix_lens=None, dropout_p=0.
             The output of softmax (possibly with different scaling). It also encodes the dropout
             pattern (negative means that location was dropped, nonnegative means it was kept).
     """
-    return FlashAttnFuncPrefix.apply(q, k, v, dropout_p, softmax_scale, return_attn_probs, prefix=False, prefix_lens=None)
+    return FlashAttnFuncPrefix.apply(q, k, v, dropout_p, softmax_scale, return_attn_probs, prefix, prefix_lens)
 
 def flash_attn_varlen_qkvpacked_func(qkv, cu_seqlens, max_seqlen, dropout_p=0.0, softmax_scale=None,
                                      causal=False, return_attn_probs=False):
