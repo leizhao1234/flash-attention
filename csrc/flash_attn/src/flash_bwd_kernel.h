@@ -639,7 +639,16 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
 
     int m_block = m_block_max - 1;
     int m_block_min = !Is_causal ? 0 : (n_block * kBlockN) / kBlockM;
-
+    bool is_prefix = params.is_prefix;
+    if (is_prefix){
+        int prefix_len = params.prefix_lens_ptr[bidb];
+        if (n_block * kBlockN >= prefix_len){
+            m_block_min = (n_block * kBlockN) / kBlockM;;
+        }else{
+            m_block_min = 0;
+        }
+    }
+    
     // We might need to exit early and write 0 to dK and dV.
     // Otherwise we get wrong result for the case where we don't enter the for loop.
     // And we might read OOB elements from gQ and gdO.
@@ -790,15 +799,22 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
         // However, it's possible that the values in acc_s are so large that they overflow
         // when we multiply with dP and convert to fp16, resulting in Inf in dS and NaNs in dQ.
         // So we need to mask out the elements beyond actual_seqlen_k.
-        if (!Is_causal) {
+        if (!Is_causal && !is_prefix) {
             if (!Is_even_MN && (n_block + 1) * kBlockN >= binfo.actual_seqlen_k) {
                 flash::apply_mask(scores, binfo.actual_seqlen_k,
                                   n_block * kBlockN + (tidx / 32 / AtomLayoutMS) * MMA_N_SdP * 16);
             }
-        } else {
+        }else if (Is_causal) {
             // Putting this causal masking right after acc_s is *much* slower for some reason.
             if (m_block * kBlockM < (n_block + 1) * kBlockN) {
                 flash::apply_mask_causal(scores, n_block * kBlockN + (tidx / 32 / AtomLayoutMS) * MMA_N_SdP * 16,
+                                         binfo.actual_seqlen_k, m_block * kBlockM + get<0>(taccScS_row(0)),
+                                         // binfo.actual_seqlen_k, m_block * kBlockM + (tidx / 32) % AtomLayoutMS * 16 + (tidx % 32) / 4,
+                                         AtomLayoutMS * 16);
+            }
+        }else if (is_prefix) {
+            if (m_block * kBlockM < (n_block + 1) * kBlockN) {
+                flash::apply_mask_prefix(scores, n_block * kBlockN + (tidx / 32 / AtomLayoutMS) * MMA_N_SdP * 16,
                                          binfo.actual_seqlen_k, m_block * kBlockM + get<0>(taccScS_row(0)),
                                          // binfo.actual_seqlen_k, m_block * kBlockM + (tidx / 32) % AtomLayoutMS * 16 + (tidx % 32) / 4,
                                          AtomLayoutMS * 16);
