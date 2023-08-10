@@ -640,8 +640,9 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
     int m_block = m_block_max - 1;
     int m_block_min = !Is_causal ? 0 : (n_block * kBlockN) / kBlockM;
     bool is_prefix = params.is_prefix;
+    int prefix_len = 0;
     if (is_prefix){
-        int prefix_len = params.prefix_lens_ptr[bidb];
+        prefix_len = params.prefix_lens_ptr[bidb];
         if (n_block * kBlockN >= prefix_len){
             m_block_min = (n_block * kBlockN) / kBlockM;;
         }else{
@@ -814,7 +815,7 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
             }
         }else if (is_prefix) {
             if (m_block * kBlockM < (n_block + 1) * kBlockN) {
-                flash::apply_mask_prefix(scores, n_block * kBlockN + (tidx / 32 / AtomLayoutMS) * MMA_N_SdP * 16,
+                flash::apply_mask_prefix(scores, prefix_len, n_block * kBlockN + (tidx / 32 / AtomLayoutMS) * MMA_N_SdP * 16,
                                          binfo.actual_seqlen_k, m_block * kBlockM + get<0>(taccScS_row(0)),
                                          // binfo.actual_seqlen_k, m_block * kBlockM + (tidx / 32) % AtomLayoutMS * 16 + (tidx % 32) / 4,
                                          AtomLayoutMS * 16);

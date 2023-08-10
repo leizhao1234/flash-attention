@@ -118,7 +118,7 @@ inline __device__ void write_softmax_to_gmem(
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_prefix, bool Is_even_N, bool Is_even_K, bool Return_softmax, typename Params>
+template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_even_N, bool Is_even_K, bool Return_softmax, typename Params>
 inline __device__ void compute_attn_1rowblock(const Params &params, const int bidb, const int bidh, const int m_block) {
 
     using Element = typename Kernel_traits::Element;
@@ -143,13 +143,14 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     if (m_block * kBlockM >= binfo.actual_seqlen_q || binfo.actual_seqlen_k == 0) return;
 
     int n_block_max = cute::ceil_div(binfo.actual_seqlen_k, kBlockN);
+    bool is_prefix = params.is_prefix;
     int prefix_len = 0;
     if (Is_causal) {
         n_block_max = std::min(n_block_max, cute::ceil_div((m_block + 1) * kBlockM, kBlockN));
         // if (threadIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0) {
         //     printf("m_block = %d, n_block_max = %d\n", m_block, n_block_max);
         // }
-    }else if (Is_prefix){
+    }else if (is_prefix){
         n_block_max = std::min(n_block_max, cute::ceil_div((m_block + 1) * kBlockM, kBlockN));
         prefix_len = params.prefix_lens[bidb];
         if (prefix_len > n_block_max * kBlockN){
@@ -334,7 +335,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     constexpr int n_masking_steps = 1;
     if (Is_causal){
         n_masking_steps = cute::ceil_div(kBlockM, kBlockN);
-    }else if (Is_prefix){
+    }else if (is_prefix){
         if (prefix_len > n_block_max * kBlockN){
             n_masking_steps = cute::ceil_div(kBlockM, kBlockN);
         }else{

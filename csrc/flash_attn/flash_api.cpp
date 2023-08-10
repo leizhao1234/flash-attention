@@ -102,7 +102,6 @@ void set_params_fprop(Flash_fwd_params &params,
     TORCH_CHECK(p_dropout < 1.f);
 
     params.is_causal = is_causal;
-    params.is_prefix = is_prefix;
 }
 
 void set_params_dgrad(Flash_bwd_params &params,

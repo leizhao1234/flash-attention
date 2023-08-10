@@ -10,9 +10,9 @@
 #include "flash.h"
 #include "flash_fwd_kernel.h"
 
-template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_prefix, bool Is_even_N, bool Is_even_K, bool Return_softmax>
+template<typename Kernel_traits, bool Is_dropout, bool Is_causal, bool Is_even_N, bool Is_even_K, bool Return_softmax>
 __global__ void flash_fwd_kernel(Flash_fwd_params params) {
-    flash::compute_attn<Kernel_traits, Is_dropout, Is_causal, Is_prefix, Is_even_N, Is_even_K, Return_softmax>(params);
+    flash::compute_attn<Kernel_traits, Is_dropout, Is_causal, Is_even_N, Is_even_K, Return_softmax>(params);
 }
 
 template<typename Kernel_traits, bool Is_dropout, bool Is_causal>
@@ -36,7 +36,7 @@ void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
         BOOL_SWITCH(is_even_K, IsEvenKConst, [&] {
             BOOL_SWITCH(return_softmax, ReturnSoftmaxConst, [&] {
                 // Will only return softmax if dropout, to reduce compilation time.
-                auto kernel = &flash_fwd_kernel<Kernel_traits, Is_dropout, Is_causal, Is_prefix, IsEvenNConst, IsEvenKConst, ReturnSoftmaxConst && Is_dropout>;
+                auto kernel = &flash_fwd_kernel<Kernel_traits, Is_dropout, Is_causal, IsEvenNConst, IsEvenKConst, ReturnSoftmaxConst && Is_dropout>;
                 // auto kernel = &flash_fwd_kernel<Kernel_traits, Is_dropout, Is_causal, IsEvenNConst, true, ReturnSoftmaxConst && Is_dropout>;
                 if (smem_size >= 48 * 1024) {
                     C10_CUDA_CHECK(cudaFuncSetAttribute(
