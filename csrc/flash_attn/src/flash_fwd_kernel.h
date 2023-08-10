@@ -152,7 +152,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         // }
     }else if (is_prefix){
         n_block_max = std::min(n_block_max, cute::ceil_div((m_block + 1) * kBlockM, kBlockN));
-        prefix_len = params.prefix_lens[bidb];
+        prefix_len = params.prefix_lens_ptr[bidb];
         if (prefix_len > n_block_max * kBlockN){
             n_block_max = cute::ceil_div(prefix_len, kBlockN);
         }
@@ -332,7 +332,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     // We also need masking on S if it's causal, for the last ceil_div(kBlockM, kBlockN) blocks.
     // We will have at least 1 "masking" iteration.
 
-    constexpr int n_masking_steps = 1;
+    int n_masking_steps = 1;
     if (Is_causal){
         n_masking_steps = cute::ceil_div(kBlockM, kBlockN);
     }else if (is_prefix){
@@ -373,7 +373,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         // We don't put the masking before the matmul S = Q K^T because we don't clear sK
         // for rows outside actual_seqlen_k. So those rows could have Inf / NaN, and the matmul
         // can produce Inf / NaN.
-        if (!Is_causal && !Is_prefix) {
+        if (!Is_causal && !is_prefix) {
             if (!Is_even_N) { flash::apply_mask(scores, binfo.actual_seqlen_k - n_block * kBlockN); }
         } else if (Is_causal){
             // Tensor caccS = make_identity_tensor(Shape<Int<kBlockM>, Int<kBlockN>>{});    // (BLK_M,BLK_N) -> (blk_m,blk_n)
@@ -393,7 +393,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
                                      kNWarps * 16);
                                      // m_block * kBlockM + (tidx / 32) * 16, kNWarps * 16);
                                      // m_block * kBlockM + (tidx / 32) * (kBlockM / kNWarps), 16);
-        }else if (Is_prefix){
+        }else if (is_prefix){
             flash::apply_mask_prefix(scores, prefix_len, n_block * kBlockN, binfo.actual_seqlen_k,
                                      // m_block * kBlockM + get<0>(idx_row(0)),
                                      m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4,

@@ -262,7 +262,7 @@ class FlashAttnFunc(torch.autograd.Function):
         return dq, dk, dv, None, None, None, None, None, None, None, None
 
 
-class FlashAttnPrefixFunc(torch.autograd.Function):
+class FlashAttnFuncPrefix(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, q, k, v, dropout_p, softmax_scale, return_softmax, prefix, prefix_lens):
@@ -393,7 +393,7 @@ def flash_attn_kvpacked_func(q, kv, dropout_p=0.0, softmax_scale=None, causal=Fa
 
 
 def flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False,
-                    return_attn_probs=False, prefix=False, prefix_lens=None):
+                    return_attn_probs=False):
     """dropout_p should be set to 0.0 during evaluation
     Supports multi-query and grouped-query attention (MQA/GQA) by passing in KV with fewer heads
     than Q. Note that the number of heads in Q must be divisible by the number of heads in KV.
@@ -420,8 +420,38 @@ def flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=None, causal=False,
             The output of softmax (possibly with different scaling). It also encodes the dropout
             pattern (negative means that location was dropped, nonnegative means it was kept).
     """
-    return FlashAttnFunc.apply(q, k, v, dropout_p, softmax_scale, causal, return_attn_probs, prefix=False, prefix_lens=None)
+    return FlashAttnFunc.apply(q, k, v, dropout_p, softmax_scale, causal, return_attn_probs)
 
+
+def flash_attn_func_prefix(q, k, v, prefix=False, prefix_lens=None, dropout_p=0.0, softmax_scale=None, 
+                    return_attn_probs=False):
+    """dropout_p should be set to 0.0 during evaluation
+    Supports multi-query and grouped-query attention (MQA/GQA) by passing in KV with fewer heads
+    than Q. Note that the number of heads in Q must be divisible by the number of heads in KV.
+    For example, if Q has 6 heads and K, V have 2 heads, head 0, 1, 2 of Q will attention to head
+    0 of K, V, and head 3, 4, 5 of Q will attention to head 1 of K, V.
+
+    Arguments:
+        q: (batch_size, seqlen, nheads, headdim)
+        k: (batch_size, seqlen, nheads_k, headdim)
+        v: (batch_size, seqlen, nheads_k, headdim)
+        dropout_p: float. Dropout probability.
+        softmax_scale: float. The scaling of QK^T before applying softmax.
+            Default to 1 / sqrt(headdim).
+        causal: bool. Whether to apply causal attention mask (e.g., for auto-regressive modeling).
+        return_attn_probs: bool. Whether to return the attention probabilities. This option is for
+           testing only. The returned probabilities are not guaranteed to be correct
+           (they might not have the right scaling).
+    Return:
+        out: (batch_size, seqlen, nheads, headdim).
+        softmax_lse [optional, if return_attn_probs=True]: (batch_size, nheads, seqlen). The
+            logsumexp of each row of the matrix QK^T * scaling (e.g., log of the softmax
+            normalization factor).
+        S_dmask [optional, if return_attn_probs=True]: (batch_size, nheads, seqlen, seqlen).
+            The output of softmax (possibly with different scaling). It also encodes the dropout
+            pattern (negative means that location was dropped, nonnegative means it was kept).
+    """
+    return FlashAttnFuncPrefix.apply(q, k, v, dropout_p, softmax_scale, return_attn_probs, prefix=False, prefix_lens=None)
 
 def flash_attn_varlen_qkvpacked_func(qkv, cu_seqlens, max_seqlen, dropout_p=0.0, softmax_scale=None,
                                      causal=False, return_attn_probs=False):
