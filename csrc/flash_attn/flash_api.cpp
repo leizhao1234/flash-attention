@@ -868,7 +868,6 @@ prefix_mha_bwd(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x 
         c10::optional<at::Tensor> &dv_,   // batch_size x seqlen_k x num_heads_k x head_size
         const float p_dropout,         // probability to drop
         const float softmax_scale,
-        const bool is_causal,
         const bool is_prefix,
         c10::optional<at::Generator> gen_,
         c10::optional<at::Tensor> &rng_state) {
@@ -1022,7 +1021,7 @@ prefix_mha_bwd(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x 
                      softmax_d.data_ptr(),
                      p_dropout,
                      softmax_scale,
-                     is_causal);
+                     false);
 
     params.is_prefix = is_prefix;
     params.prefix_lens_ptr = static_cast<int *>(prefix_lens.data_ptr());
