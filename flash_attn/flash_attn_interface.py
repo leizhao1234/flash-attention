@@ -40,7 +40,7 @@ def _flash_attn_forward(q, k, v, dropout_p, softmax_scale, causal, return_softma
     maybe_contiguous = lambda x: x.contiguous() if x.stride(-1) != 1 else x
     q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
     out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state = flash_attn_cuda.fwd(
-        q, k, v, None, dropout_p, softmax_scale, causal, return_softmax, False, None
+        q, k, v, None, dropout_p, softmax_scale, causal, return_softmax, None
     )
     return out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state
 
