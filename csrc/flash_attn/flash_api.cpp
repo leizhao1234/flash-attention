@@ -1064,6 +1064,7 @@ prefix_mha_bwd(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x 
     const int head_size = sizes[3];
     const int seqlen_k = k.size(1);
     const int num_heads_k = k.size(2);
+    TORCH_CHECK(seqlen_q == seqlen_k, "seqlen_q must equal to seqlen_k");
     TORCH_CHECK(batch_size > 0, "batch size must be positive");
     TORCH_CHECK(head_size % 8 == 0, "head_size should be a multiple of 8");
     TORCH_CHECK(head_size <= 256, "FlashAttention backward only supports head dimension at most 256");
@@ -1272,6 +1273,7 @@ suffix_mha_bwd(const at::Tensor &dout,  // batch_size x seqlen_q x num_heads, x 
     const int head_size = sizes[3];
     const int seqlen_k = k.size(1);
     const int num_heads_k = k.size(2);
+    TORCH_CHECK(seqlen_q == seqlen_k, "seqlen_q must equal to seqlen_k");
     TORCH_CHECK(batch_size > 0, "batch size must be positive");
     TORCH_CHECK(head_size % 8 == 0, "head_size should be a multiple of 8");
     TORCH_CHECK(head_size <= 256, "FlashAttention backward only supports head dimension at most 256");

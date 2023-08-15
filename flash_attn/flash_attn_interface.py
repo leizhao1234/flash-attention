@@ -321,7 +321,7 @@ class FlashAttnFuncSuffix(torch.autograd.Function):
     def forward(ctx, q, k, v, dropout_p, softmax_scale, return_softmax, suffix, suffix_lens):
         if softmax_scale is None:
             softmax_scale = q.shape[-1] ** (-0.5)
-        out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state = _flash_attn_prefix_forward(
+        out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state = _flash_attn_suffix_forward(
             q, k, v, dropout_p, softmax_scale,
             return_softmax=return_softmax and dropout_p > 0,
             suffix=suffix,
@@ -337,7 +337,7 @@ class FlashAttnFuncSuffix(torch.autograd.Function):
     def backward(ctx, dout, *args):
         q, k, v, out, softmax_lse, rng_state , suffix_lens = ctx.saved_tensors
         dq, dk, dv = torch.empty_like(q), torch.empty_like(k), torch.empty_like(v)
-        _flash_attn_prefix_backward(
+        _flash_attn_suffix_backward(
             dout, q, k, v, out, softmax_lse, suffix_lens,
             dq, dk, dv, ctx.dropout_p, ctx.softmax_scale, ctx.suffix,
             rng_state=rng_state
