@@ -163,7 +163,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         prefix_len = binfo.actual_seqlen_k - params.suffix_lens_ptr[bidb];
         need_expand = true;
         if (prefix_len >= (m_block + 1) * kBlockM){
-            need_expand = false
+            need_expand = false;
             n_block_max = std::min(n_block_max, cute::ceil_div((m_block + 1) * kBlockM, kBlockN));
         }
     }
