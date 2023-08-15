@@ -53,6 +53,15 @@ def _flash_attn_prefix_forward(q, k, v, dropout_p, softmax_scale, return_softmax
     return out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state
 
 
+def _flash_attn_suffix_forward(q, k, v, dropout_p, softmax_scale, return_softmax, suffix, suffix_lens):
+    maybe_contiguous = lambda x: x.contiguous() if x.stride(-1) != 1 else x
+    q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
+    out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state = flash_attn_cuda.suffix_fwd(
+        q, k, v, None, dropout_p, softmax_scale, return_softmax, suffix, suffix_lens, None
+    )
+    return out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state
+
+
 def _flash_attn_varlen_forward(q, k, v, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k,
                                dropout_p, softmax_scale, causal, return_softmax):
     maybe_contiguous = lambda x: x.contiguous() if x.stride(-1) != 1 else x
@@ -85,6 +94,17 @@ def _flash_attn_prefix_backward(dout, q, k, v, out, softmax_lse, prefix_lens, dq
     dq, dk, dv, softmax_d, = flash_attn_cuda.prefix_bwd(
         dout, q, k, v, out, softmax_lse, prefix_lens, dq, dk, dv, dropout_p,
         softmax_scale, prefix, None, rng_state
+    )
+    return dq, dk, dv, softmax_d
+
+def _flash_attn_suffix_backward(dout, q, k, v, out, softmax_lse, suffix_lens, dq, dk, dv,
+                         dropout_p, softmax_scale, suffix, rng_state=None):
+    maybe_contiguous = lambda x: x.contiguous() if x.stride(-1) != 1 else x
+    # dq, dk, dv are allocated by us so they should already be contiguous
+    dout, q, k, v, out = [maybe_contiguous(x) for x in (dout, q, k, v, out)]
+    dq, dk, dv, softmax_d, = flash_attn_cuda.suffix_bwd(
+        dout, q, k, v, out, softmax_lse, suffix_lens, dq, dk, dv, dropout_p,
+        softmax_scale, suffix, None, rng_state
     )
     return dq, dk, dv, softmax_d
 
@@ -294,6 +314,39 @@ class FlashAttnFuncPrefix(torch.autograd.Function):
         dv = dv[..., :dout.shape[-1]]
         return dq, dk, dv, None, None, None, None, None, None, None, None
 
+
+class FlashAttnFuncSuffix(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, q, k, v, dropout_p, softmax_scale, return_softmax, suffix, suffix_lens):
+        if softmax_scale is None:
+            softmax_scale = q.shape[-1] ** (-0.5)
+        out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state = _flash_attn_prefix_forward(
+            q, k, v, dropout_p, softmax_scale,
+            return_softmax=return_softmax and dropout_p > 0,
+            suffix=suffix,
+            suffix_lens=suffix_lens
+        )
+        ctx.save_for_backward(q, k, v, out_padded, softmax_lse, rng_state, suffix_lens)
+        ctx.dropout_p = dropout_p
+        ctx.softmax_scale = softmax_scale
+        ctx.suffix = suffix
+        return out if not return_softmax else (out, softmax_lse, S_dmask)
+
+    @staticmethod
+    def backward(ctx, dout, *args):
+        q, k, v, out, softmax_lse, rng_state , suffix_lens = ctx.saved_tensors
+        dq, dk, dv = torch.empty_like(q), torch.empty_like(k), torch.empty_like(v)
+        _flash_attn_prefix_backward(
+            dout, q, k, v, out, softmax_lse, suffix_lens,
+            dq, dk, dv, ctx.dropout_p, ctx.softmax_scale, ctx.suffix,
+            rng_state=rng_state
+        )
+        dq = dq[..., :dout.shape[-1]]  # We could have padded the head dimension
+        dk = dk[..., :dout.shape[-1]]
+        dv = dv[..., :dout.shape[-1]]
+        return dq, dk, dv, None, None, None, None, None, None, None, None
+
 class FlashAttnVarlenFunc(torch.autograd.Function):
 
     @staticmethod
@@ -452,6 +505,38 @@ def flash_attn_func_prefix(q, k, v, dropout_p=0.0, softmax_scale=None,
             pattern (negative means that location was dropped, nonnegative means it was kept).
     """
     return FlashAttnFuncPrefix.apply(q, k, v, dropout_p, softmax_scale, return_attn_probs, prefix, prefix_lens)
+
+
+def flash_attn_func_suffix(q, k, v, dropout_p=0.0, softmax_scale=None, 
+                    return_attn_probs=False, suffix=True, suffix_lens=None):
+    """dropout_p should be set to 0.0 during evaluation
+    Supports multi-query and grouped-query attention (MQA/GQA) by passing in KV with fewer heads
+    than Q. Note that the number of heads in Q must be divisible by the number of heads in KV.
+    For example, if Q has 6 heads and K, V have 2 heads, head 0, 1, 2 of Q will attention to head
+    0 of K, V, and head 3, 4, 5 of Q will attention to head 1 of K, V.
+
+    Arguments:
+        q: (batch_size, seqlen, nheads, headdim)
+        k: (batch_size, seqlen, nheads_k, headdim)
+        v: (batch_size, seqlen, nheads_k, headdim)
+        dropout_p: float. Dropout probability.
+        softmax_scale: float. The scaling of QK^T before applying softmax.
+            Default to 1 / sqrt(headdim).
+        causal: bool. Whether to apply causal attention mask (e.g., for auto-regressive modeling).
+        return_attn_probs: bool. Whether to return the attention probabilities. This option is for
+           testing only. The returned probabilities are not guaranteed to be correct
+           (they might not have the right scaling).
+    Return:
+        out: (batch_size, seqlen, nheads, headdim).
+        softmax_lse [optional, if return_attn_probs=True]: (batch_size, nheads, seqlen). The
+            logsumexp of each row of the matrix QK^T * scaling (e.g., log of the softmax
+            normalization factor).
+        S_dmask [optional, if return_attn_probs=True]: (batch_size, nheads, seqlen, seqlen).
+            The output of softmax (possibly with different scaling). It also encodes the dropout
+            pattern (negative means that location was dropped, nonnegative means it was kept).
+    """
+    return FlashAttnFuncSuffix.apply(q, k, v, dropout_p, softmax_scale, return_attn_probs, suffix, suffix_lens)
+
 
 def flash_attn_varlen_qkvpacked_func(qkv, cu_seqlens, max_seqlen, dropout_p=0.0, softmax_scale=None,
                                      causal=False, return_attn_probs=False):

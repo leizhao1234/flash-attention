@@ -144,6 +144,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
 
     int n_block_max = cute::ceil_div(binfo.actual_seqlen_k, kBlockN);
     bool is_prefix = params.is_prefix;
+    bool is_suffix = params.is_suffix;
     int prefix_len = 0;
     bool need_expand = false;
     if (Is_causal) {
@@ -157,6 +158,13 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         if (prefix_len > n_block_max * kBlockN){
             need_expand = true;
             n_block_max = cute::ceil_div(prefix_len, kBlockN);
+        }
+    }else if (is_suffix){
+        prefix_len = binfo.actual_seqlen_k - params.suffix_lens_ptr[bidb];
+        need_expand = true;
+        if (prefix_len >= (m_block + 1) * kBlockM){
+            need_expand = false
+            n_block_max = std::min(n_block_max, cute::ceil_div((m_block + 1) * kBlockM, kBlockN));
         }
     }
 
@@ -338,9 +346,11 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     if (Is_causal){
         n_masking_steps = cute::ceil_div(kBlockM, kBlockN);
     }else if (is_prefix){
-        if (need_expand){
-            n_masking_steps = 1;
-        }else{
+        if (!need_expand){
+            n_masking_steps = cute::ceil_div(kBlockM, kBlockN);
+        }
+    }else if (is_suffix){
+        if (!need_expand){
             n_masking_steps = cute::ceil_div(kBlockM, kBlockN);
         }
     }
@@ -375,9 +385,8 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         // We don't put the masking before the matmul S = Q K^T because we don't clear sK
         // for rows outside actual_seqlen_k. So those rows could have Inf / NaN, and the matmul
         // can produce Inf / NaN.
-        if (!Is_causal && !is_prefix) {
-            if (!Is_even_N) { flash::apply_mask(scores, binfo.actual_seqlen_k - n_block * kBlockN); }
-        } else if (Is_causal){
+        
+        if (Is_causal){
             // Tensor caccS = make_identity_tensor(Shape<Int<kBlockM>, Int<kBlockN>>{});    // (BLK_M,BLK_N) -> (blk_m,blk_n)
             // Tensor taccScS = thr_mma.partition_C(caccS);                           // (MMA,MMA_M,MMA_N)
             // static_assert(decltype(size<0>(taccScS))::value == 4);
@@ -400,6 +409,13 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
                                      // m_block * kBlockM + get<0>(idx_row(0)),
                                      m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4,
                                      kNWarps * 16);
+        }else if (is_suffix){
+            flash::apply_mask_suffix(scores, prefix_len, n_block * kBlockN, binfo.actual_seqlen_k,
+                                     // m_block * kBlockM + get<0>(idx_row(0)),
+                                     m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4,
+                                     kNWarps * 16);                       
+        }else{
+            if (!Is_even_N) { flash::apply_mask(scores, binfo.actual_seqlen_k - n_block * kBlockN); }
         }
 
         flash::cp_async_wait<0>();

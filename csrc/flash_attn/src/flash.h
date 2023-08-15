@@ -65,7 +65,9 @@ struct Flash_fwd_params : public Qkv_params {
     // The pointer to the softmax sum.
     void * __restrict__ softmax_lse_ptr;
     int *__restrict__ prefix_lens_ptr = nullptr;
+    int *__restrict__ suffix_lens_ptr = nullptr;
     bool is_prefix = false;
+    bool is_suffix = false;
     // The dimensions.
     int b, seqlen_q, seqlen_k, d, seqlen_q_rounded, seqlen_k_rounded, d_rounded;
     // The scaling factors for the kernel.
