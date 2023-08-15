@@ -216,7 +216,7 @@ inline __device__ void apply_mask_prefix(Tensor<Engine, Layout> &tensor, const u
 }
 
 template <typename Engine, typename Layout>
-inline __device__ void apply_mask_prefix_right_down(Tensor<Engine, Layout> &tensor, const uint32_t prefix_len, const uint32_t col_idx_offset_,
+inline __device__ void apply_mask_suffix(Tensor<Engine, Layout> &tensor, const uint32_t suffix_len, const uint32_t col_idx_offset_,
                                          const uint32_t max_seqlen_k, const uint32_t row_idx_offset_,
                                          const uint32_t warp_row_stride) {
     // tensor has shape (ncol=(2, MMA_M), nrow=(2, MMA_N))
@@ -238,7 +238,7 @@ inline __device__ void apply_mask_prefix_right_down(Tensor<Engine, Layout> &tens
                 #pragma unroll
                 for (int j = 0; j < size<1, 0>(tensor); ++j) {
                     const uint32_t col_idx = col_idx_base + j;
-                    if ((col_idx >= col_idx_limit && row_idx < prefix_len) || col_idx >= max_seqlen_k) {
+                    if ((col_idx >= col_idx_limit && row_idx < suffix_len) || col_idx >= max_seqlen_k) {
                         tensor(make_coord(i, mi), make_coord(j, nj)) = -INFINITY;
                     }
                     
