@@ -358,6 +358,8 @@ prefix_mha_fwd(const at::Tensor &q,         // batch_size x seqlen_q x num_heads
     TORCH_CHECK(v.is_cuda(), "Input tensor must be on CUDA device");
     TORCH_CHECK(prefix_lens.is_cuda(), "Input tensor must be on CUDA device");
     TORCH_CHECK(prefix_lens.stride(-1) == 1, "prefix_lens must have contiguous last dimension");
+    auto prefix_lens_dtype = prefix_lens.dtype()
+    TORCH_CHECK(prefix_lens_dtype == torch::kInt32, "prefix_lens dtype must be int32");
     TORCH_CHECK(q.stride(-1) == 1, "Input tensor must have contiguous last dimension");
     TORCH_CHECK(k.stride(-1) == 1, "Input tensor must have contiguous last dimension");
     TORCH_CHECK(v.stride(-1) == 1, "Input tensor must have contiguous last dimension");
@@ -506,6 +508,8 @@ suffix_mha_fwd(const at::Tensor &q,         // batch_size x seqlen_q x num_heads
     TORCH_CHECK(v.is_cuda(), "Input tensor must be on CUDA device");
     TORCH_CHECK(suffix_lens.is_cuda(), "Input tensor must be on CUDA device");
     TORCH_CHECK(suffix_lens.stride(-1) == 1, "suffix_lens must have contiguous last dimension");
+    auto suffix_lens_dtype = suffix_lens.dtype()
+    TORCH_CHECK(suffix_lens_dtype == torch::kInt32, "suffix_lens dtype must be int32");
     TORCH_CHECK(q.stride(-1) == 1, "Input tensor must have contiguous last dimension");
     TORCH_CHECK(k.stride(-1) == 1, "Input tensor must have contiguous last dimension");
     TORCH_CHECK(v.stride(-1) == 1, "Input tensor must have contiguous last dimension");
