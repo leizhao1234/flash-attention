@@ -437,13 +437,13 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         //    ? softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2)
         //    : softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2);
         
-        if (masking_steps == 0){
+        if (masking_step == 0){
             softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2);
         }else{
             if (is_prefix || is_suffix || Is_causal){
-                softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/true>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2);
+                softmax_rescale_o</*Is_first=*/false,  /*Check_inf=*/true>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2);
             }else{
-                softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/false>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2);
+                softmax_rescale_o</*Is_first=*/false,  /*Check_inf=*/false>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2);
             }
         }
 
