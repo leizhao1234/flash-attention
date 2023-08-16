@@ -143,11 +143,21 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     if (m_block * kBlockM >= binfo.actual_seqlen_q || binfo.actual_seqlen_k == 0) return;
 
     int n_block_max = cute::ceil_div(binfo.actual_seqlen_k, kBlockN);
+    bool is_prefix = params.is_prefix;
+    int prefix_len = 0;
+    bool need_expand = false;
     if (Is_causal) {
         n_block_max = std::min(n_block_max, cute::ceil_div((m_block + 1) * kBlockM, kBlockN));
         // if (threadIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0) {
         //     printf("m_block = %d, n_block_max = %d\n", m_block, n_block_max);
         // }
+    }else if (is_prefix){
+        n_block_max = std::min(n_block_max, cute::ceil_div((m_block + 1) * kBlockM, kBlockN));
+        prefix_len = params.prefix_lens_ptr[bidb];
+        if (prefix_len > n_block_max * kBlockN){
+            need_expand = true;
+            n_block_max = cute::ceil_div(prefix_len, kBlockN);
+        }
     }
 
     // We iterate over the blocks in reverse order. This is because the last block is the only one
@@ -329,7 +339,17 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     // We also need masking on S if it's causal, for the last ceil_div(kBlockM, kBlockN) blocks.
     // We will have at least 1 "masking" iteration.
 
-    constexpr int n_masking_steps = Is_causal ? cute::ceil_div(kBlockM, kBlockN) : 1;
+    int n_masking_steps = 1;
+    if (Is_causal){
+        n_masking_steps = cute::ceil_div(kBlockM, kBlockN);
+    }else if (is_prefix){
+        if (need_expand){
+            n_masking_steps = 1;
+        }else{
+            n_masking_steps = cute::ceil_div(kBlockM, kBlockN);
+        }
+    }
+
     #pragma unroll
     for (int masking_step = 0; masking_step < n_masking_steps; ++masking_step, --n_block) {
         Tensor acc_s = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kBlockN>>{});  // (MMA=4, MMA_M, MMA_N)
@@ -361,9 +381,9 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         // We don't put the masking before the matmul S = Q K^T because we don't clear sK
         // for rows outside actual_seqlen_k. So those rows could have Inf / NaN, and the matmul
         // can produce Inf / NaN.
-        if (!Is_causal) {
+        if (!Is_causal && !is_prefix) {
             if (!Is_even_N) { flash::apply_mask(scores, binfo.actual_seqlen_k - n_block * kBlockN); }
-        } else {
+        } else if (Is_causal){
             // Tensor caccS = make_identity_tensor(Shape<Int<kBlockM>, Int<kBlockN>>{});    // (BLK_M,BLK_N) -> (blk_m,blk_n)
             // Tensor taccScS = thr_mma.partition_C(caccS);                           // (MMA,MMA_M,MMA_N)
             // static_assert(decltype(size<0>(taccScS))::value == 4);
@@ -381,6 +401,11 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
                                      kNWarps * 16);
                                      // m_block * kBlockM + (tidx / 32) * 16, kNWarps * 16);
                                      // m_block * kBlockM + (tidx / 32) * (kBlockM / kNWarps), 16);
+        }else if (is_prefix){
+            flash::apply_mask_prefix(scores, prefix_len, n_block * kBlockN, binfo.actual_seqlen_k,
+                                     // m_block * kBlockM + get<0>(idx_row(0)),
+                                     m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4,
+                                     kNWarps * 16);
         }
 
         flash::cp_async_wait<0>();
@@ -395,9 +420,18 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         }
 
         // TODO: when we have key_padding_mask we'll need to Check_inf
-        masking_step == 0
-            ? softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2)
-            : softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2);
+        //masking_step == 0
+        //    ? softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2)
+        //    : softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2);
+        if (masking_step == 0){
+            softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2);
+        }else{
+            if (is_prefix || Is_causal){
+                softmax_rescale_o</*Is_first=*/false,  /*Check_inf=*/true>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2);
+            }else{
+                softmax_rescale_o</*Is_first=*/false,  /*Check_inf=*/false>(scores, scores_max, scores_sum, acc_o, params.scale_softmax_log2);
+            }
+        }
 
         // Convert scores from fp32 to fp16/bf16
         Tensor rP = flash::convert_type<Element>(scores);
