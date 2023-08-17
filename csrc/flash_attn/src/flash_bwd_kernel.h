@@ -653,7 +653,7 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
         prefix_len = binfo.actual_seqlen_k - params.suffix_lens_ptr[bidb];
         m_block_min = (n_block * kBlockN) / kBlockM;
         if (m_block_min * kBlockM > prefix_len){
-             m_block_min = prefix_len / kBlockM;
+            m_block_min = prefix_len / kBlockM;
         }
     }
     
